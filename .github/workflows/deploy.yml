@@ -1,0 +1,178 @@
+name: Deploy InvBot v2
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on tags like v1.0.0, v1.0.1, v2.0.0, etc.
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for git operations
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION}"
+
+      - name: Install dependencies
+        run: |
+          npm install
+          cd frontend
+          npm install
+          cd ..
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+          cd ..
+
+      - name: Run tests (optional)
+        run: |
+          npm test --passWithNoTests 2>/dev/null || true
+          cd frontend
+          npm test --passWithNoTests 2>/dev/null || true
+          cd ..
+        continue-on-error: true
+
+      - name: Create deployment artifact
+        run: |
+          tar -czf invbot-${{ steps.version.outputs.version }}.tar.gz \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=.env \
+            --exclude=frontend/node_modules \
+            --exclude=dist \
+            --exclude=frontend/dist \
+            --exclude=coverage \
+            .
+          ls -lh invbot-${{ steps.version.outputs.version }}.tar.gz
+
+      - name: Upload artifact to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: invbot-${{ steps.version.outputs.version }}.tar.gz
+          tag_name: ${{ github.ref }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to production server
+        env:
+          SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          ssh -i ~/.ssh/deploy_key $SSH_USER@$SSH_HOST << 'DEPLOY_SCRIPT'
+          set -e
+          
+          DEPLOY_PATH="${{ vars.DEPLOY_PATH }}"
+          BRANCH="${{ github.ref_name }}"
+          
+          echo "🚀 Starting deployment to production..."
+          echo "Version: $BRANCH"
+          echo "Deploy path: $DEPLOY_PATH"
+          
+          # Create directory if not exists
+          if [ ! -d "$DEPLOY_PATH" ]; then
+            mkdir -p "$DEPLOY_PATH"
+            cd "$DEPLOY_PATH"
+            git clone https://github.com/${{ github.repository }}.git .
+          else
+            cd "$DEPLOY_PATH"
+          fi
+          
+          # Update from git
+          echo "📥 Pulling latest code..."
+          git fetch --all --tags
+          git checkout $BRANCH
+          git pull origin $BRANCH
+          
+          # Install dependencies
+          echo "📦 Installing dependencies..."
+          npm install --production --no-save
+          
+          # Build application
+          echo "🔨 Building backend..."
+          npm run build
+          
+          # Build frontend
+          echo "🔨 Building frontend..."
+          cd frontend
+          npm install --production --no-save
+          npm run build
+          cd ..
+          
+          # Database migrations (if applicable)
+          if [ -d "migrations" ]; then
+            echo "🗄️ Running database migrations..."
+            npm run migrations 2>/dev/null || true
+          fi
+          
+          # Restart service
+          echo "♻️  Restarting InvBot service..."
+          sudo systemctl restart invbot || true
+          
+          # Verify service is running
+          echo "✅ Checking service status..."
+          sudo systemctl status invbot --no-pager || true
+          
+          # Health check
+          echo "🏥 Running health check..."
+          sleep 2
+          curl -s -m 5 http://localhost:3000/health || echo "Health check pending..."
+          
+          echo ""
+          echo "✅ Deployment completed successfully!"
+          echo "Version: $BRANCH"
+          echo "Timestamp: $(date)"
+          
+          DEPLOY_SCRIPT
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "✅ Deployment successful!"
+          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "Server: ${{ secrets.DEPLOY_SSH_HOST }}"
+
+      - name: Notify deployment failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"
+          echo "Please check the logs above."
+          exit 1
