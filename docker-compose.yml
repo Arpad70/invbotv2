@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: invbot_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: invbot_v2
+      MYSQL_USER: invbot
+      MYSQL_PASSWORD: invbot_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database_schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - invbot_network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: invbot_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 3s
+      retries: 5
+    networks:
+      - invbot_network
+
+  # Node.js Application (Optional - for manual running)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: invbot_app
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: invbot
+      DB_PASSWORD: invbot_password
+      DB_NAME: invbot_v2
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - invbot_network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  invbot_network:
+    driver: bridge

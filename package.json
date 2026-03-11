@@ -1,0 +1,63 @@
+{
+  "name": "invbotv2",
+  "version": "2.0.0",
+  "description": "AI-powered Polymarket arbitrage & prediction trading bot",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write src",
+    "clean": "rm -rf dist node_modules"
+  },
+  "keywords": [
+    "polymarket",
+    "trading",
+    "prediction",
+    "arbitrage",
+    "bot",
+    "ai"
+  ],
+  "author": "InvBot Team",
+  "license": "MIT",
+  "dependencies": {
+    "@polymarket/clob-client": "^5.8.0",
+    "axios": "^1.6.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "ethers": "^6.16.0",
+    "express": "^4.18.2",
+    "express-async-errors": "^3.1.1",
+    "joi": "^17.11.0",
+    "jsonwebtoken": "^9.0.0",
+    "mysql2": "^3.6.0",
+    "redis": "^4.6.0",
+    "socket.io": "^4.5.0",
+    "uuid": "^9.0.0",
+    "winston": "^3.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.10",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.10.6",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^6.17.0",
+    "@typescript-eslint/parser": "^6.17.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.1.1",
+    "ts-jest": "^29.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
