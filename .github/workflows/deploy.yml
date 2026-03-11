@@ -70,6 +70,7 @@ jobs:
             --exclude=dist \
             --exclude=frontend/dist \
             --exclude=coverage \
+            --exclude='*.tar.gz' \
             .
           ls -lh invbot-${{ steps.version.outputs.version }}.tar.gz
 
