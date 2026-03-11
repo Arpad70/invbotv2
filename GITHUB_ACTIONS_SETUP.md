@@ -9,85 +9,80 @@ This guide explains how to set up automatic deployment using GitHub Actions. The
 1. GitHub repository with this code
 2. Production SSH server with:
    - SSH access enabled
+   - SSH password authentication enabled
    - Node.js 18+ installed
    - MySQL/MariaDB database configured
    - Systemd service configured (see DEPLOYMENT.md)
    - Git installed
 
-## Step 1: Generate SSH Deploy Key
+## Step 1: Prepare Server
 
-### On Your Local Machine
+### Verify SSH Password Authentication is Enabled
 
-```bash
-# Generate SSH keypair (without passphrase for automated access)
-ssh-keygen -t ed25519 -f ~/.ssh/github_deploy_key -N "" -C "github-actions-deploy"
-
-# Show public key (you'll need this next)
-cat ~/.ssh/github_deploy_key.pub
-```
-
-### On Production Server
+On your production server:
 
 ```bash
-# Add public key to authorized_keys
-mkdir -p ~/.ssh
-cat >> ~/.ssh/authorized_keys << EOF
-ssh-ed25519 AAAA... github-actions-deploy
-EOF
+# Check SSH config allows password authentication
+sudo grep "PasswordAuthentication" /etc/ssh/sshd_config
 
-# Secure permissions
-chmod 600 ~/.ssh/authorized_keys
-chmod 700 ~/.ssh
+# If result is "PasswordAuthentication no", enable it:
+sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sudo systemctl restart ssh
 
-# Verify SSH access from GitHub (we'll test this after setup)
+# Test login with password
+ssh user@your-server.com "whoami"  # This will prompt for password
 ```
 
-## Step 2: Configure GitHub Actions Secrets & Variables
+### Create SSH User (Optional but Recommended)
+
+For security, you might want a dedicated deployment user:
+
+```bash
+# On production server
+sudo useradd -m -s /bin/bash deploy
+sudo passwd deploy  # Set a password
+
+# Give sudo rights for systemctl
+sudo visudo
+# Add line: deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl
+```
+
+## Step 2: Configure GitHub Actions Secrets
 
 ### Via GitHub Web Interface
 
 1. Go to your repository
 2. Navigate to **Settings** → **Secrets and variables** → **Actions**
 
-### Add Secrets (Repository Secrets)
+### Add Repository Secrets
 
 These are stored encrypted and never shown in logs.
 
-**DEPLOY_SSH_KEY** (Secret)
-```
------BEGIN OPENSSH PRIVATE KEY-----
-MIIEpAIBAAKCAQEA... (paste entire private key content)
------END OPENSSH PRIVATE KEY-----
-```
-
-**DEPLOY_SSH_HOST** (Secret - optional, can use variables)
+**DEPLOY_SSH_HOST** (Secret)
 ```
 your-server.com
 # or
 192.168.1.100
 ```
 
-**DEPLOY_SSH_USER** (Secret - optional, can use variables)
+**DEPLOY_SSH_USER** (Secret)
 ```
 ubuntu
 # or
-deploy
+deploy  (the user you created above)
 ```
 
-### Add Variables (Repository Variables)
+**SSH_PASSWORD** (Secret)
+```
+your_ssh_user_password_here
+```
 
-These are not encrypted but are still not shown in normal logs.
+### Add Repository Variables
 
-**DEPLOY_PATH**
+**DEPLOY_PATH** (Variable)
 ```
 /var/www/invbotv2
 # or wherever you want to deploy
-```
-
-**DEPLOY_BRANCH** (Optional)
-```
-master
-# or main
 ```
 
 ## Step 3: Set Up Production Server
@@ -144,19 +139,9 @@ sudo chmod 750 /var/www/invbotv2
 ### From Your Local Machine
 
 ```bash
-# Test SSH connection with deploy key
-ssh -i ~/.ssh/github_deploy_key -o StrictHostKeyChecking=accept-new \
-  ubuntu@your-server.com "echo 'SSH access OK' && pwd"
-```
-
-### Create GitHub Actions Variables for Testing
-
-In `Settings` → `Secrets and variables` → `Actions`, test with:
-
-```yaml
-DEPLOY_SSH_HOST: your-server.com
-DEPLOY_SSH_USER: ubuntu
-DEPLOY_PATH: /var/www/invbotv2
+# Test password-based SSH connection
+ssh username@your-server.com "echo 'SSH access OK' && pwd && whoami"
+# This will prompt for password
 ```
 
 ## Step 5: Create First Release Tag
@@ -189,7 +174,7 @@ After workflow completes successfully:
 
 ```bash
 # SSH into your server
-ssh ubuntu@your-server.com
+ssh username@your-server.com
 
 # Check service status
 sudo systemctl status invbot
@@ -246,12 +231,16 @@ git tag v2.0.0   # Major release
 
 ### SSH Connection Failed
 
-**Error:** `Permission denied (publickey)`
+**Error:** `Permission denied (password)` or `Connection refused`
 
 **Solution:**
-1. Verify SSH key is in `~/.ssh/authorized_keys` on server
-2. Check key permissions: `chmod 600 ~/.ssh/authorized_keys`
-3. Check if SSH service is running: `sudo service ssh status`
+1. Verify SSH password authentication is enabled on server:
+   ```bash
+   sudo grep -i passwordauth /etc/ssh/sshd_config
+   ```
+2. Check SSH is running: `sudo systemctl status ssh`
+3. Test password locally: `ssh user@your-server.com`
+4. Verify credentials in GitHub Secrets
 
 ### Workflow Didn't Trigger
 
@@ -262,7 +251,7 @@ git tag v2.0.0   # Major release
 
 **Solution:**
 1. Check tag format: `git tag -l` should show `v1.0.0`
-2. Validate YAML: Use online YAML validator
+2. Validate YAML: Use online YAML validator on `.github/workflows/deploy.yml`
 3. Enable Actions: Settings → Actions → Allow all actions
 
 ### Deployment Succeeded But Service Didn't Restart
@@ -305,21 +294,33 @@ Check the **Actions** tab for full logs:
 2. Missing dependencies
 3. TypeScript compilation errors
 
+### sshpass not found
+
+If you see: `sshpass: command not found`
+
+The workflow automatically installs sshpass, but if it fails:
+
+```bash
+# On your server
+sudo apt-get update
+sudo apt-get install sshpass
+```
+
 ## Security Best Practices
 
 ✅ **Do:**
-- Use SSH ed25519 keys (more secure than RSA)
-- Store sensitive values in GitHub Secrets
-- Use different keys for different environments
-- Rotate keys periodically
-- Limit SSH access to GitHub runners (if possible)
+- Use SSH password authentication only for deployment users
+- Store SSH password in GitHub Secrets (encrypted)
+- Use `sudo` for privileged operations (systemctl restart)
 - Keep .env files only on server (never commit)
+- Rotate passwords periodically
+- Use strong passwords for SSH user
 
 ❌ **Don't:**
 - Commit .env files to repository
-- Share private keys
-- Use weak passwords
+- Share passwords in plain text
 - Hardcode credentials in YAML
+- Use root account for deployment
 - Allow SSH access from everywhere
 
 ## Advanced Configuration
@@ -335,17 +336,6 @@ on:
     tags:
       - 'v*.*.*'        # Deploy to production
       - 'staging-*'     # Deploy to staging
-```
-
-### Environment Variables Per Stage
-
-```yaml
-jobs:
-  deploy:
-    environment:
-      name: production  # or staging
-    env:
-      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
 ```
 
 ### Slack Notifications
@@ -376,21 +366,33 @@ git tag -l
 # Show tag details
 git show v1.0.0
 
-# View deployment logs on GitHub
-# Settings → Environments → Select environment → View logs
+# View workflow runs
+# https://github.com/YOUR_USERNAME/invbotv2/actions
 ```
 
-### Automatic Rollback (Optional)
+### Live Logs During Deployment
 
-If you need to revert:
+On GitHub Actions page, click the running workflow to see real-time logs of:
+- Build progress
+- SSH connection
+- Git operations
+- npm install & build
+- Service restart
+- Health checks
+
+## Automatic Rollback (Optional)
+
+If you need to revert to previous version:
 
 ```bash
-# Tag a known-good version
-git tag v1.0.0-rollback
+# Find previous version
+git tag -l | sort -V
 
-# Or checkout previous tag
-git checkout v1.0.0
-git push origin v1.0.0-force -f
+# Create rollback tag
+git tag v1.0.0-rollback v1.0.0
+
+# Push to trigger deployment of old version
+git push origin v1.0.0-rollback
 ```
 
 ## Support

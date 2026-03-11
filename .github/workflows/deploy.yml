@@ -83,83 +83,121 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
       - name: Deploy to production server
         env:
           SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_BRANCH: ${{ github.ref_name }}
+          GIT_REPO: https://github.com/${{ github.repository }}.git
         run: |
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
+          # Create SSH connection and run all deployment steps in single session
+          sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            -o RequestTTY=auto \
+            $SSH_USER@$SSH_HOST << 'DEPLOY_SCRIPT'
           
-          ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
-          
-          ssh -i ~/.ssh/deploy_key $SSH_USER@$SSH_HOST << 'DEPLOY_SCRIPT'
           set -e
           
-          DEPLOY_PATH="${{ vars.DEPLOY_PATH }}"
-          BRANCH="${{ github.ref_name }}"
+          DEPLOY_PATH="$DEPLOY_PATH"
+          BRANCH="$DEPLOY_BRANCH"
+          GIT_REPO="$GIT_REPO"
           
           echo "🚀 Starting deployment to production..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "Version: $BRANCH"
           echo "Deploy path: $DEPLOY_PATH"
+          echo "Repository: $GIT_REPO"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          # Create directory if not exists
+          # Step 1: Initialize or update repository
           if [ ! -d "$DEPLOY_PATH" ]; then
+            echo "📁 Creating deployment directory..."
             mkdir -p "$DEPLOY_PATH"
             cd "$DEPLOY_PATH"
-            git clone https://github.com/${{ github.repository }}.git .
+            git clone "$GIT_REPO" .
           else
             cd "$DEPLOY_PATH"
           fi
           
-          # Update from git
-          echo "📥 Pulling latest code..."
+          echo ""
+          echo "Step 1: Updating repository..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           git fetch --all --tags
           git checkout $BRANCH
           git pull origin $BRANCH
+          echo "✅ Repository updated"
           
-          # Install dependencies
-          echo "📦 Installing dependencies..."
+          # Step 2: Install backend dependencies
+          echo ""
+          echo "Step 2: Installing backend dependencies..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           npm install --production --no-save
+          echo "✅ Backend dependencies installed"
           
-          # Build application
-          echo "🔨 Building backend..."
+          # Step 3: Build backend
+          echo ""
+          echo "Step 3: Building backend..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           npm run build
+          echo "✅ Backend built successfully"
           
-          # Build frontend
-          echo "🔨 Building frontend..."
+          # Step 4: Install and build frontend
+          echo ""
+          echo "Step 4: Installing and building frontend..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           cd frontend
           npm install --production --no-save
           npm run build
           cd ..
+          echo "✅ Frontend built successfully"
           
-          # Database migrations (if applicable)
+          # Step 5: Run database migrations (if applicable)
           if [ -d "migrations" ]; then
-            echo "🗄️ Running database migrations..."
-            npm run migrations 2>/dev/null || true
+            echo ""
+            echo "Step 5: Running database migrations..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            npm run migrations 2>/dev/null || echo "⚠ No migrations to run"
           fi
           
-          # Restart service
-          echo "♻️  Restarting InvBot service..."
-          sudo systemctl restart invbot || true
-          
-          # Verify service is running
-          echo "✅ Checking service status..."
-          sudo systemctl status invbot --no-pager || true
-          
-          # Health check
-          echo "🏥 Running health check..."
-          sleep 2
-          curl -s -m 5 http://localhost:3000/health || echo "Health check pending..."
-          
+          # Step 6: Restart InvBot service
           echo ""
-          echo "✅ Deployment completed successfully!"
+          echo "Step 6: Restarting InvBot service..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          sudo systemctl restart invbot
+          echo "✅ Service restarted"
+          
+          # Step 7: Verify service status
+          echo ""
+          echo "Step 7: Verifying service status..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          sleep 2
+          sudo systemctl status invbot --no-pager
+          echo "✅ Service is running"
+          
+          # Step 8: Health check
+          echo ""
+          echo "Step 8: Running health check..."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          if curl -s -m 10 http://localhost:3000/health | grep -q "ok"; then
+            echo "✅ Health check passed"
+          else
+            echo "⚠ Health check pending (service may still be starting up)"
+          fi
+          
+          # Final summary
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ DEPLOYMENT COMPLETED SUCCESSFULLY!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "Version: $BRANCH"
+          echo "Deploy path: $DEPLOY_PATH"
           echo "Timestamp: $(date)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
           DEPLOY_SCRIPT
 
