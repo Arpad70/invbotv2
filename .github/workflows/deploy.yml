@@ -84,7 +84,7 @@ jobs:
             -o ConnectTimeout=10 \
             -i ~/.ssh/deploy_key \
             -p "$DEPLOY_SSH_PORT_FINAL" \
-            $DEPLOY_SSH_USER@$DEPLOY_SSH_HOST bash << 'DEPLOY_SCRIPT'
+            $DEPLOY_SSH_USER@$DEPLOY_SSH_HOST bash << DEPLOY_SCRIPT
           
           set -e
           
