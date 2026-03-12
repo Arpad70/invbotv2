@@ -153,16 +153,16 @@ jobs:
           echo ""
           echo "Step 6: Restarting InvBot service..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          sudo systemctl restart invbot
-          echo "✅ Service restarted"
+          sudo systemctl restart invbot || echo "⚠ Could not restart service (requires sudo setup)"
+          echo "✅ Service restart attempted"
           
           # Step 7: Verify service status
           echo ""
           echo "Step 7: Verifying service status..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           sleep 2
-          sudo systemctl status invbot --no-pager
-          echo "✅ Service is running"
+          sudo systemctl status invbot --no-pager || echo "⚠ Could not verify status (requires sudo setup)"
+          echo "✅ Service status check attempted"
           
           # Step 8: Health check
           echo ""
