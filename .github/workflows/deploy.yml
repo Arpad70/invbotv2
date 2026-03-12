@@ -113,7 +113,8 @@ jobs:
           echo "Step 1: Updating repository..."
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           git fetch --all --tags
-          git reset --hard origin/$BRANCH
+          git checkout -f $BRANCH 2>/dev/null || git checkout -f master
+          git reset --hard origin/$BRANCH 2>/dev/null || git reset --hard origin/master
           echo "✅ Repository updated"
           
           # Step 2: Install backend dependencies
