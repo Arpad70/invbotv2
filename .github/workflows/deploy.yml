@@ -15,7 +15,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-    environment: Deploy_invbot
+    environment: Deployd_invbot
 
     steps:
       - name: Checkout code
