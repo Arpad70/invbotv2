@@ -80,7 +80,7 @@ jobs:
           DEPLOY_SSH_PORT_FINAL=${DEPLOY_SSH_PORT:-20002}
           
           # Create SSH connection and run all deployment steps in single session
-          ssh -o StrictHostKeyChecking=no \
+          ssh -4 -o StrictHostKeyChecking=no \
             -o ConnectTimeout=10 \
             -i ~/.ssh/deploy_key \
             -p "$DEPLOY_SSH_PORT_FINAL" \
